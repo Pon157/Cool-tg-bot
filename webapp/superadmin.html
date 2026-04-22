@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Суперадмин</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a;
+    --text: #e8eaf0; --muted: #7a7e91; --accent: #4f7ef8;
+    --green: #3ecf75; --red: #e05252; --yellow: #e8b94a; --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+
+  /* Login */
+  #login-screen {
+    min-height: 100vh; display: flex; flex-direction: column;
+    justify-content: center; padding: 32px 20px;
+  }
+  #login-screen h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+  #login-screen p  { font-size: 13px; color: var(--muted); margin-bottom: 28px; }
+  .field { margin-bottom: 14px; }
+  .field label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 6px; }
+  .field input, .field select {
+    width: 100%; background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 11px 12px; color: var(--text);
+    font-size: 14px; outline: none;
+  }
+  .field input:focus { border-color: var(--accent); }
+  .btn {
+    padding: 11px 20px; background: var(--accent); border: none;
+    border-radius: var(--radius); color: #fff; font-size: 14px;
+    font-weight: 500; cursor: pointer; width: 100%;
+  }
+  .btn:active { opacity: .85; }
+  .btn.sm { width: auto; padding: 7px 14px; font-size: 13px; }
+  .btn.danger { background: var(--red); }
+  .btn.ghost  { background: none; border: 1px solid var(--border); color: var(--muted); }
+  .err { color: var(--red); font-size: 13px; margin-bottom: 12px; display: none; }
+
+  /* Nav */
+  .nav { display: flex; border-bottom: 1px solid var(--border); overflow-x: auto; }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav-item {
+    flex-shrink: 0; padding: 12px 16px; font-size: 12px;
+    color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent;
+    white-space: nowrap;
+  }
+  .nav-item.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .section { display: none; padding: 16px; }
+  .section.active { display: block; }
+  .section-title { font-size: 12px; color: var(--muted); text-transform: uppercase;
+                   letter-spacing: .5px; margin-bottom: 14px; }
+
+  /* Stats grid */
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+  .stat-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 14px;
+  }
+  .stat-card .val { font-size: 24px; font-weight: 700; }
+  .stat-card .lbl { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .chart-wrap { background: var(--surface); border: 1px solid var(--border);
+                border-radius: var(--radius); padding: 14px; }
+  .chart-wrap .ch-title { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+  .bar-chart { display: flex; align-items: flex-end; gap: 4px; height: 60px; }
+  .bar { flex: 1; background: var(--accent); border-radius: 3px 3px 0 0;
+         min-width: 0; transition: height 0.3s; position: relative; }
+  .bar:hover::after {
+    content: attr(data-val); position: absolute; bottom: calc(100% + 4px);
+    left: 50%; transform: translateX(-50%); background: var(--surface);
+    border: 1px solid var(--border); padding: 2px 6px; border-radius: 4px;
+    font-size: 11px; white-space: nowrap; pointer-events: none;
+  }
+
+  /* Tables */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 8px 10px; color: var(--muted);
+       font-size: 11px; border-bottom: 1px solid var(--border); font-weight: 500; }
+  td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  .badge-ban { color: var(--red); font-size: 11px; }
+  .badge-warn { color: var(--yellow); font-size: 11px; }
+  .badge-ok   { color: var(--green); font-size: 11px; }
+
+  /* Action bar */
+  .action-bar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .input-sm {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 8px 12px; color: var(--text);
+    font-size: 13px; outline: none; flex: 1; min-width: 120px;
+  }
+  .input-sm:focus { border-color: var(--accent); }
+
+  /* Dialogs moderation */
+  .dlg-row { background: var(--surface); border: 1px solid var(--border);
+              border-radius: var(--radius); padding: 12px; margin-bottom: 10px;
+              cursor: pointer; }
+  .dlg-row:active { background: #22263a; }
+  .dlg-row .row1 { display: flex; justify-content: space-between; font-size: 13px; }
+  .dlg-row .row2 { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .status-pill {
+    font-size: 11px; padding: 2px 8px; border-radius: 20px;
+  }
+  .status-pill.active  { background: #1e3a24; color: var(--green); }
+  .status-pill.pending { background: #2a2714; color: var(--yellow); }
+  .status-pill.closed  { background: var(--border); color: var(--muted); }
+
+  /* Message thread */
+  .msg-thread { display: none; }
+  .msg-thread.open { display: block; }
+  .back-link { font-size: 14px; color: var(--accent); cursor: pointer; margin-bottom: 14px; display: block; }
+  .msg-item { margin-bottom: 8px; }
+  .msg-item .sender { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+  .msg-item .bubble {
+    display: inline-block; padding: 8px 12px; border-radius: 12px;
+    font-size: 13px; max-width: 85%; word-break: break-word;
+  }
+  .msg-item.user  .bubble { background: var(--surface); border: 1px solid var(--border); }
+  .msg-item.admin .bubble { background: var(--accent); color: #fff; float: right; }
+  .msg-item.admin { text-align: right; }
+  .clearfix::after { content: ''; display: table; clear: both; }
+  .divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div id="login-screen">
+  <h1>Суперадмин-панель</h1>
+  <p>Вход доступен только суперадминистраторам системы.</p>
+  <div class="err" id="login-err">Нет доступа</div>
+  <div class="field"><label>Псевдоним</label><input id="l-user" type="text"></div>
+  <div class="field"><label>Пароль</label><input id="l-pass" type="password"></div>
+  <button class="btn" onclick="login()">Войти</button>
+</div>
+
+<!-- App -->
+<div id="app" style="display:none">
+  <nav class="nav">
+    <div class="nav-item active" id="n-stats"   onclick="showTab('stats')">Статистика</div>
+    <div class="nav-item"        id="n-users"   onclick="showTab('users')">Пользователи</div>
+    <div class="nav-item"        id="n-admins"  onclick="showTab('admins')">Администраторы</div>
+    <div class="nav-item"        id="n-dialogs" onclick="showTab('dialogs')">Диалоги</div>
+  </nav>
+
+  <!-- Stats -->
+  <div class="section active" id="tab-stats">
+    <div class="section-title">Обзор</div>
+    <div class="stats-grid" id="stats-grid"></div>
+    <div class="chart-wrap">
+      <div class="ch-title">Сообщения за 7 дней</div>
+      <div class="bar-chart" id="bar-chart"></div>
+    </div>
+  </div>
+
+  <!-- Users -->
+  <div class="section" id="tab-users">
+    <div class="section-title">Управление пользователями</div>
+    <div class="action-bar">
+      <input class="input-sm" id="ban-uid"    type="number" placeholder="Telegram ID">
+      <input class="input-sm" id="ban-reason" type="text"   placeholder="Причина">
+      <button class="btn sm"        onclick="doBan()">Бан</button>
+      <button class="btn sm ghost"  onclick="doUnban()">Разбан</button>
+      <button class="btn sm danger" onclick="doWarn()">Варн</button>
+    </div>
+    <div class="section-title">Список пользователей</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>ID</th><th>Псевдоним</th><th>Username</th><th>Варны</th><th>Статус</th></tr>
+        </thead>
+        <tbody id="users-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Admins -->
+  <div class="section" id="tab-admins">
+    <div class="section-title">Список администраторов</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Псевдоним</th><th>Онлайн</th><th>Рейтинг</th><th>Профиль</th></tr>
+        </thead>
+        <tbody id="admins-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Dialogs -->
+  <div class="section" id="tab-dialogs">
+    <div id="dlg-list-view">
+      <div class="section-title">Все диалоги</div>
+      <div id="dlg-list"></div>
+    </div>
+    <div class="msg-thread" id="thread-view">
+      <span class="back-link" onclick="closeThread()">&#8592; Назад к диалогам</span>
+      <div class="section-title" id="thread-title">Диалог</div>
+      <div id="thread-msgs"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const tg = window.Telegram?.WebApp;
+tg?.expand();
+const API = location.origin + '/api';
+let token = sessionStorage.getItem('sa_token');
+
+if (token) {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = '';
+  loadAll();
+}
+
+async function login() {
+  const u = document.getElementById('l-user').value.trim();
+  const p = document.getElementById('l-pass').value.trim();
+  const res = await fetch(API + '/auth/login', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ pseudonym: u, password: p }),
+  });
+  if (!res.ok) { document.getElementById('login-err').style.display = 'block'; return; }
+  const d = await res.json();
+  if (!d.admin.is_superadmin) { document.getElementById('login-err').style.display = 'block'; return; }
+  token = d.token;
+  sessionStorage.setItem('sa_token', token);
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = '';
+  loadAll();
+}
+
+function auth() { return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }; }
+
+function loadAll() { loadStats(); loadUsers(); loadAdmins(); loadDialogs(); }
+
+function showTab(tab) {
+  ['stats','users','admins','dialogs'].forEach(t => {
+    document.getElementById('tab-'+t).classList.toggle('active', t===tab);
+    document.getElementById('n-'+t).classList.toggle('active', t===tab);
+  });
+}
+
+// ── Stats ──
+async function loadStats() {
+  const res  = await fetch(API + '/superadmin/stats', { headers: auth() });
+  if (!res.ok) return;
+  const s = await res.json();
+  const grid = document.getElementById('stats-grid');
+  grid.innerHTML = [
+    ['Пользователей',    s.users_count],
+    ['Администраторов',  s.admins_count],
+    ['Всего диалогов',   s.total_dialogs],
+    ['Активных',         s.active_dialogs],
+    ['Сообщений',        s.total_messages],
+    ['Средний рейтинг',  s.avg_rating.toFixed(2) + ' ★'],
+    ['Забанено',         s.banned_users],
+    ['Онлайн',           s.online_admins + ' адм.'],
+  ].map(([l, v]) => `
+    <div class="stat-card">
+      <div class="val">${v}</div>
+      <div class="lbl">${l}</div>
+    </div>
+  `).join('');
+
+  const daily = s.daily_messages || [];
+  const max   = Math.max(...daily.map(d => d.count), 1);
+  const chart = document.getElementById('bar-chart');
+  chart.innerHTML = daily.map(d => {
+    const h = Math.round((d.count / max) * 100);
+    const label = d.date.slice(5);
+    return `<div class="bar" style="height:${h}%" data-val="${d.count}" title="${label}: ${d.count}"></div>`;
+  }).join('') || '<span style="color:var(--muted);font-size:13px">Нет данных</span>';
+}
+
+// ── Users ──
+async function loadUsers() {
+  const res   = await fetch(API + '/superadmin/users?limit=100', { headers: auth() });
+  if (!res.ok) return;
+  const users = await res.json();
+  const tbody = document.getElementById('users-tbody');
+  tbody.innerHTML = users.map(u => `
+    <tr>
+      <td style="font-family:monospace;font-size:12px">${u.telegram_id}</td>
+      <td>${esc(u.pseudonym || '—')}</td>
+      <td>${u.username ? '@'+esc(u.username) : '—'}</td>
+      <td>${u.warn_count > 0 ? `<span class="badge-warn">${u.warn_count}</span>` : '—'}</td>
+      <td>${u.is_banned ? '<span class="badge-ban">Забанен</span>' : '<span class="badge-ok">OK</span>'}</td>
+    </tr>
+  `).join('');
+}
+
+async function doBan() {
+  const uid    = document.getElementById('ban-uid').value.trim();
+  const reason = document.getElementById('ban-reason').value.trim();
+  if (!uid) return;
+  await fetch(API + '/superadmin/ban', {
+    method: 'POST', headers: auth(),
+    body: JSON.stringify({ user_id: parseInt(uid), reason }),
+  });
+  loadUsers();
+  document.getElementById('ban-uid').value = '';
+  document.getElementById('ban-reason').value = '';
+}
+
+async function doUnban() {
+  const uid = document.getElementById('ban-uid').value.trim();
+  if (!uid) return;
+  await fetch(API + '/superadmin/unban', {
+    method: 'POST', headers: auth(),
+    body: JSON.stringify({ user_id: parseInt(uid) }),
+  });
+  loadUsers();
+}
+
+async function doWarn() {
+  const uid = document.getElementById('ban-uid').value.trim();
+  if (!uid) return;
+  const res = await fetch(API + '/superadmin/warn', {
+    method: 'POST', headers: auth(),
+    body: JSON.stringify({ user_id: parseInt(uid) }),
+  });
+  const d = await res.json();
+  alert(`Предупреждений выдано: ${d.warn_count}`);
+  loadUsers();
+}
+
+// ── Admins ──
+async function loadAdmins() {
+  const res    = await fetch(API + '/superadmin/admins', { headers: auth() });
+  if (!res.ok) return;
+  const admins = await res.json();
+  const tbody  = document.getElementById('admins-tbody');
+  tbody.innerHTML = admins.map(a => `
+    <tr>
+      <td>${esc(a.pseudonym)}</td>
+      <td>${a.is_online ? '<span class="badge-ok">да</span>' : '<span style="color:var(--muted)">нет</span>'}</td>
+      <td>${a.avg_rating > 0 ? '★ ' + a.avg_rating.toFixed(1) : '—'}</td>
+      <td>${a.is_profile_filled ? '<span class="badge-ok">заполнен</span>' : '<span class="badge-warn">нет</span>'}</td>
+    </tr>
+  `).join('');
+}
+
+// ── Dialogs ──
+async function loadDialogs() {
+  const res  = await fetch(API + '/superadmin/dialogs?limit=50', { headers: auth() });
+  if (!res.ok) return;
+  const dlgs = await res.json();
+  const el   = document.getElementById('dlg-list');
+  if (!dlgs.length) { el.innerHTML = '<p style="color:var(--muted);font-size:14px">Диалогов нет</p>'; return; }
+  el.innerHTML = dlgs.map(d => `
+    <div class="dlg-row" onclick="openThread(${d.id}, '${d.status}')">
+      <div class="row1">
+        <span>Диалог #${d.id}</span>
+        <span class="status-pill ${d.status}">${d.status}</span>
+      </div>
+      <div class="row2">
+        ${d.is_anonymous ? 'Анонимный' : (d.user_pseudonym || '—')}
+        → ${d.admin_pseudonym || 'не назначен'}
+        · ${new Date(d.created_at).toLocaleDateString('ru')}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function openThread(id, status) {
+  const res  = await fetch(`${API}/superadmin/dialogs/${id}/messages`, { headers: auth() });
+  if (!res.ok) return;
+  const msgs = await res.json();
+
+  document.getElementById('dlg-list-view').style.display = 'none';
+  const tv = document.getElementById('thread-view');
+  tv.classList.add('open');
+  document.getElementById('thread-title').textContent = `Диалог #${id} (${status})`;
+
+  const el = document.getElementById('thread-msgs');
+  if (!msgs.length) { el.innerHTML = '<p style="color:var(--muted);font-size:13px">Сообщений нет</p>'; return; }
+  el.innerHTML = msgs.map(m => `
+    <div class="msg-item ${m.sender_type} clearfix">
+      <div class="sender">${m.sender_type === 'user' ? 'Пользователь' : 'Администратор'}
+        · ${new Date(m.created_at).toLocaleTimeString('ru', {hour:'2-digit',minute:'2-digit'})}
+      </div>
+      <div class="bubble">
+        ${m.media_url && m.media_type === 'photo' ? `<img src="${m.media_url}" style="max-width:180px;border-radius:8px;display:block;margin-bottom:4px" alt="">` : ''}
+        ${m.content ? esc(m.content) : (m.media_type ? `[${m.media_type}]` : '')}
+      </div>
+    </div>
+  `).join('');
+}
+
+function closeThread() {
+  document.getElementById('thread-view').classList.remove('open');
+  document.getElementById('dlg-list-view').style.display = '';
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+</body>
+</html>
