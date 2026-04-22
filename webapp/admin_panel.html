@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Панель администратора</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a;
+    --text: #e8eaf0; --muted: #7a7e91; --accent: #4f7ef8;
+    --green: #3ecf75; --red: #e05252; --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+
+  /* Nav */
+  .nav { display: flex; border-bottom: 1px solid var(--border); }
+  .nav-item {
+    flex: 1; padding: 12px 0; text-align: center; font-size: 12px;
+    color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent;
+  }
+  .nav-item.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* Sections */
+  .section { display: none; padding: 14px 16px; }
+  .section.active { display: block; }
+
+  /* Login */
+  #login-screen {
+    display: flex; flex-direction: column; justify-content: center;
+    min-height: 100vh; padding: 32px 20px;
+  }
+  #login-screen h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+  #login-screen p  { font-size: 13px; color: var(--muted); margin-bottom: 28px; }
+  .field { margin-bottom: 14px; }
+  .field label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 6px; }
+  .field input {
+    width: 100%; background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 11px 12px; color: var(--text);
+    font-size: 14px; outline: none;
+  }
+  .field input:focus { border-color: var(--accent); }
+  .btn {
+    width: 100%; padding: 12px; background: var(--accent);
+    border: none; border-radius: var(--radius); color: #fff;
+    font-size: 15px; font-weight: 500; cursor: pointer;
+  }
+  .btn:active { opacity: .85; }
+  .btn.secondary {
+    background: none; border: 1px solid var(--border); color: var(--muted); margin-top: 10px;
+  }
+  .err { color: var(--red); font-size: 13px; margin-bottom: 12px; display: none; }
+
+  /* Profile card */
+  .profile-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px; margin-bottom: 14px;
+  }
+  .profile-card .name { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
+  .profile-card .sub  { font-size: 13px; color: var(--muted); }
+  .online-badge {
+    display: inline-block; background: #1e3a24; color: var(--green);
+    border-radius: 20px; padding: 3px 10px; font-size: 12px; margin-top: 8px;
+  }
+
+  /* Dialog list */
+  .dlg-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 13px; margin-bottom: 10px;
+    cursor: pointer; transition: background 0.15s;
+  }
+  .dlg-card:active { background: #22263a; }
+  .dlg-meta { display: flex; justify-content: space-between; align-items: center; }
+  .dlg-id   { font-size: 14px; font-weight: 500; }
+  .dlg-badge {
+    background: var(--red); color: #fff; border-radius: 20px;
+    padding: 1px 8px; font-size: 11px;
+  }
+  .dlg-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  /* Chat */
+  #chat-view { display: none; flex-direction: column; height: 100vh; }
+  .chat-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .chat-header button {
+    background: none; border: none; color: var(--accent); font-size: 15px; cursor: pointer;
+  }
+  .chat-header span { font-size: 15px; font-weight: 500; }
+  .messages { flex: 1; overflow-y: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+  .msg { max-width: 78%; }
+  .msg.user  { align-self: flex-start; }
+  .msg.admin { align-self: flex-end;   }
+  .msg-bubble {
+    padding: 9px 12px; border-radius: 14px; font-size: 14px; line-height: 1.5; word-break: break-word;
+  }
+  .msg.user  .msg-bubble { background: var(--surface); border: 1px solid var(--border); }
+  .msg.admin .msg-bubble { background: var(--accent); color: #fff; }
+  .msg-time { font-size: 10px; color: var(--muted); margin-top: 3px; padding: 0 4px; }
+  .msg.admin .msg-time { text-align: right; }
+  .msg-media { border-radius: 10px; max-width: 220px; margin-bottom: 4px; }
+  .msg-label { font-size: 10px; color: var(--muted); margin-bottom: 3px; padding: 0 4px; }
+
+  /* Channel section */
+  .ch-form .field textarea {
+    width: 100%; background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 11px 12px; color: var(--text);
+    font-size: 14px; outline: none; resize: vertical; min-height: 80px;
+  }
+  .ch-form .field textarea:focus { border-color: var(--accent); }
+  .post-item {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 12px; margin-bottom: 10px;
+  }
+  .post-item .post-text { font-size: 13px; margin-bottom: 6px; }
+  .post-item .post-meta { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; }
+  .del-btn {
+    background: none; border: none; color: var(--red); font-size: 12px;
+    cursor: pointer; padding: 0;
+  }
+
+  .tag { font-size: 11px; color: var(--muted); }
+  .divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+  .section-title { font-size: 12px; color: var(--muted); text-transform: uppercase;
+                   letter-spacing: .5px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div id="login-screen">
+  <h1>Панель администратора</h1>
+  <p>Войдите, используя псевдоним и пароль, выданный суперадминистратором.</p>
+  <div class="err" id="login-err">Неверный логин или пароль</div>
+  <div class="field"><label>Псевдоним (логин)</label><input id="l-user" type="text" autocomplete="username"></div>
+  <div class="field"><label>Пароль</label><input id="l-pass" type="password" autocomplete="current-password"></div>
+  <button class="btn" onclick="login()">Войти</button>
+</div>
+
+<!-- Main app (hidden until login) -->
+<div id="app" style="display:none;">
+  <nav class="nav">
+    <div class="nav-item active" id="nav-dialogs"  onclick="showTab('dialogs')">Диалоги</div>
+    <div class="nav-item"        id="nav-channel"  onclick="showTab('channel')">Канал</div>
+    <div class="nav-item"        id="nav-profile"  onclick="showTab('profile')">Профиль</div>
+  </nav>
+
+  <!-- Dialogs -->
+  <div class="section active" id="tab-dialogs">
+    <div class="section-title">Активные диалоги</div>
+    <div id="dlg-list"></div>
+  </div>
+
+  <!-- Channel -->
+  <div class="section" id="tab-channel">
+    <div class="section-title">Управление каналом</div>
+    <div class="ch-form">
+      <div class="field"><label>Название канала</label><input id="ch-title" type="text"></div>
+      <div class="field"><label>Описание</label><textarea id="ch-desc" rows="2"></textarea></div>
+      <button class="btn" style="margin-bottom:8px" onclick="saveChannel()">Сохранить</button>
+      <hr class="divider">
+      <div class="section-title">Новый пост</div>
+      <div class="field"><label>Текст</label><textarea id="post-text" rows="4"></textarea></div>
+      <button class="btn" onclick="publishPost()">Опубликовать</button>
+      <hr class="divider">
+      <div class="section-title">Последние посты</div>
+      <div id="posts-list"></div>
+    </div>
+  </div>
+
+  <!-- Profile -->
+  <div class="section" id="tab-profile">
+    <div class="profile-card" id="profile-block"></div>
+  </div>
+</div>
+
+<!-- Chat view -->
+<div id="chat-view">
+  <div class="chat-header">
+    <button onclick="closeChat()">&#8592;</button>
+    <span id="chat-title">Диалог</span>
+  </div>
+  <div class="messages" id="messages"></div>
+</div>
+
+<script>
+const tg = window.Telegram?.WebApp;
+tg?.expand();
+const API = location.origin + '/api';
+let token = sessionStorage.getItem('admin_token');
+let currentAdminId = null;
+let currentDialogId = null;
+let pollInterval = null;
+
+// ── Auth ──
+async function login() {
+  const u = document.getElementById('l-user').value.trim();
+  const p = document.getElementById('l-pass').value.trim();
+  if (!u || !p) return;
+  const res = await fetch(API + '/auth/login', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ pseudonym: u, password: p }),
+  });
+  if (!res.ok) { document.getElementById('login-err').style.display = 'block'; return; }
+  const d = await res.json();
+  token = d.token;
+  currentAdminId = d.admin.id;
+  sessionStorage.setItem('admin_token', token);
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = '';
+  loadAll();
+}
+
+function auth() { return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }; }
+
+// Auto-login if token exists
+if (token) {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = '';
+  loadAll();
+}
+
+function loadAll() { loadDialogs(); loadChannel(); loadProfile(); }
+
+// ── Tabs ──
+function showTab(tab) {
+  ['dialogs','channel','profile'].forEach(t => {
+    document.getElementById('tab-' + t).classList.toggle('active', t === tab);
+    document.getElementById('nav-' + t).classList.toggle('active', t === tab);
+  });
+}
+
+// ── Dialogs ──
+async function loadDialogs() {
+  const res  = await fetch(API + '/admin/dialogs', { headers: auth() });
+  if (res.status === 401) { logout(); return; }
+  const dlgs = await res.json();
+  const el   = document.getElementById('dlg-list');
+  if (!dlgs.length) { el.innerHTML = '<p style="color:var(--muted);font-size:14px">Нет активных диалогов</p>'; return; }
+  el.innerHTML = dlgs.map(d => `
+    <div class="dlg-card" onclick="openChat(${d.id})">
+      <div class="dlg-meta">
+        <span class="dlg-id">Диалог #${d.id}</span>
+        ${d.unread > 0 ? `<span class="dlg-badge">${d.unread} новых</span>` : ''}
+      </div>
+      <div class="dlg-sub">
+        ${d.is_anonymous ? 'Анонимный' : 'С профилем'}
+        · ${new Date(d.created_at).toLocaleDateString('ru')}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function openChat(dialogId) {
+  currentDialogId = dialogId;
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('chat-view').style.display = 'flex';
+  document.getElementById('chat-title').textContent = `Диалог #${dialogId}`;
+  await loadMessages();
+  pollInterval = setInterval(loadMessages, 4000);
+}
+
+function closeChat() {
+  clearInterval(pollInterval);
+  document.getElementById('chat-view').style.display = 'none';
+  document.getElementById('app').style.display = '';
+  loadDialogs();
+}
+
+async function loadMessages() {
+  const res  = await fetch(`${API}/admin/dialogs/${currentDialogId}/messages`, { headers: auth() });
+  if (!res.ok) return;
+  const msgs = await res.json();
+  const el   = document.getElementById('messages');
+  if (!msgs.length) { el.innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;margin-top:40px">Сообщений нет</p>'; return; }
+  el.innerHTML = msgs.map(m => {
+    const side = m.sender_type;
+    const time = new Date(m.created_at).toLocaleTimeString('ru', {hour:'2-digit',minute:'2-digit'});
+    let body = '';
+    if (m.media_url && m.media_type === 'photo') {
+      body = `<img class="msg-media" src="${m.media_url}" alt="">`;
+    }
+    if (m.content) body += `<div class="msg-bubble">${esc(m.content)}</div>`;
+    if (!body) body = `<div class="msg-bubble" style="font-style:italic;opacity:.7">[${m.media_type || 'файл'}]</div>`;
+    return `
+      <div class="msg ${side}">
+        <div class="msg-label">${side === 'user' ? 'Пользователь' : 'Вы'}</div>
+        ${body}
+        <div class="msg-time">${time}</div>
+      </div>`;
+  }).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+// ── Channel ──
+async function loadChannel() {
+  const res = await fetch(API + '/admin/me', { headers: auth() });
+  if (!res.ok) return;
+  const me = await res.json();
+  document.getElementById('ch-title').value = me.channel_title || '';
+  document.getElementById('ch-desc').value  = me.channel_description || '';
+
+  // Posts
+  const pr  = await fetch(`${API}/channels/${currentAdminId}/posts`, { headers: auth() });
+  const posts = await pr.json();
+  const el  = document.getElementById('posts-list');
+  if (!posts.length) { el.innerHTML = '<p style="color:var(--muted);font-size:13px">Постов нет</p>'; return; }
+  el.innerHTML = posts.map(p => `
+    <div class="post-item">
+      ${p.content ? `<div class="post-text">${esc(p.content)}</div>` : ''}
+      <div class="post-meta">
+        <span>${new Date(p.created_at).toLocaleDateString('ru')}</span>
+        <button class="del-btn" onclick="deletePost(${p.id})">Удалить</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function saveChannel() {
+  const title = document.getElementById('ch-title').value.trim();
+  const desc  = document.getElementById('ch-desc').value.trim();
+  await fetch(API + '/admin/channel', {
+    method: 'PATCH', headers: auth(),
+    body: JSON.stringify({ title, description: desc }),
+  });
+  alert('Сохранено');
+}
+
+async function publishPost() {
+  const text = document.getElementById('post-text').value.trim();
+  if (!text) return;
+  await fetch(API + '/admin/channel/posts', {
+    method: 'POST', headers: auth(),
+    body: JSON.stringify({ content: text }),
+  });
+  document.getElementById('post-text').value = '';
+  loadChannel();
+}
+
+async function deletePost(id) {
+  if (!confirm('Удалить пост?')) return;
+  await fetch(`${API}/admin/channel/posts/${id}`, { method: 'DELETE', headers: auth() });
+  loadChannel();
+}
+
+// ── Profile ──
+async function loadProfile() {
+  const res = await fetch(API + '/admin/me', { headers: auth() });
+  if (!res.ok) return;
+  const me = await res.json();
+  document.getElementById('profile-block').innerHTML = `
+    <div class="name">${esc(me.pseudonym)}</div>
+    <div class="sub">
+      ${me.age ? `Возраст: ${esc(me.age)}<br>` : ''}
+      ${me.hobbies ? `Увлечения: ${esc(me.hobbies)}<br>` : ''}
+      ${me.description ? esc(me.description) : ''}
+    </div>
+    <div class="online-badge">${me.is_online ? 'Онлайн' : 'Офлайн'}</div>
+  `;
+}
+
+function logout() {
+  fetch(API + '/auth/logout', { method: 'POST', headers: auth() }).catch(()=>{});
+  sessionStorage.removeItem('admin_token');
+  location.reload();
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+</body>
+</html>
+
+
+
+
+
+
