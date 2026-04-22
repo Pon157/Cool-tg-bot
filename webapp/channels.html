@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Каналы</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a;
+    --text: #e8eaf0; --muted: #7a7e91; --accent: #4f7ef8;
+    --green: #3ecf75; --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+  .header { padding: 18px 16px 10px; border-bottom: 1px solid var(--border); }
+  .header h1 { font-size: 17px; font-weight: 600; }
+
+  /* Channel list */
+  .ch-list { padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+  .ch-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 14px;
+    display: flex; align-items: center; gap: 12px; cursor: pointer;
+    transition: background 0.15s;
+  }
+  .ch-card:active { background: #22263a; }
+  .ch-av {
+    width: 48px; height: 48px; border-radius: 50%;
+    background: var(--border); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 19px; font-weight: 600; color: var(--muted); overflow: hidden;
+  }
+  .ch-av img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+  .ch-info { flex: 1; min-width: 0; }
+  .ch-title { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ch-desc  { font-size: 12px; color: var(--muted); margin-top: 2px;
+               white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sub-btn {
+    background: none; border: 1px solid var(--border);
+    color: var(--muted); border-radius: 20px; padding: 5px 13px;
+    font-size: 12px; cursor: pointer; white-space: nowrap;
+    transition: all 0.15s;
+  }
+  .sub-btn.subscribed { border-color: var(--green); color: var(--green); }
+
+  /* Channel detail */
+  #detail { display: none; }
+  .back-btn {
+    display: flex; align-items: center; gap: 8px;
+    padding: 14px 16px; border-bottom: 1px solid var(--border);
+    cursor: pointer; font-size: 14px; color: var(--accent);
+  }
+  .ch-banner {
+    display: flex; align-items: center; gap: 14px;
+    padding: 16px; border-bottom: 1px solid var(--border);
+  }
+  .ch-banner-av {
+    width: 60px; height: 60px; border-radius: 50%;
+    background: var(--border); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; font-weight: 700; color: var(--muted); overflow: hidden;
+  }
+  .ch-banner-av img { width:100%; height:100%; border-radius:50%; object-fit:cover; }
+  .ch-banner h2 { font-size: 16px; font-weight: 600; }
+  .ch-banner p  { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .sub-bar { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .sub-bar button {
+    width: 100%; padding: 11px; border-radius: var(--radius);
+    border: 1px solid var(--border); background: none;
+    color: var(--text); font-size: 14px; cursor: pointer; transition: all 0.15s;
+  }
+  .sub-bar button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .posts { padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; }
+  .post {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 14px;
+  }
+  .post-text { font-size: 14px; line-height: 1.55; }
+  .post-media { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .post-media img {
+    border-radius: 6px; object-fit: cover;
+    cursor: pointer;
+  }
+  .post-media img.single { width: 100%; max-height: 280px; }
+  .post-media img.multi  { width: 31%; aspect-ratio: 1; }
+  .post-meta { display: flex; justify-content: space-between; margin-top: 10px;
+                font-size: 11px; color: var(--muted); }
+  .empty { text-align: center; padding: 50px 20px; color: var(--muted); font-size: 14px; }
+
+  .lb { display:none; position:fixed; inset:0; background:rgba(0,0,0,.9); z-index:200;
+        align-items:center; justify-content:center; }
+  .lb.open { display:flex; }
+  .lb img { max-width:95vw; max-height:90vh; border-radius:6px; }
+  .lb-close { position:fixed; top:14px; right:16px; background:none; border:none;
+               color:#fff; font-size:26px; cursor:pointer; }
+</style>
+</head>
+<body>
+<div id="list-view">
+  <div class="header"><h1>Каналы</h1></div>
+  <div class="ch-list" id="ch-list"></div>
+</div>
+
+<div id="detail">
+  <div class="back-btn" onclick="showList()">&#8592; Назад</div>
+  <div class="ch-banner">
+    <div class="ch-banner-av" id="d-av"></div>
+    <div>
+      <h2 id="d-title"></h2>
+      <p  id="d-desc"></p>
+    </div>
+  </div>
+  <div class="sub-bar">
+    <button id="sub-toggle" onclick="toggleSub()">Подписаться</button>
+  </div>
+  <div class="posts" id="posts"></div>
+</div>
+
+<div class="lb" id="lb">
+  <button class="lb-close" onclick="document.getElementById('lb').classList.remove('open')">&#x2715;</button>
+  <img id="lb-img" src="" alt="">
+</div>
+
+<script>
+const tg = window.Telegram?.WebApp;
+tg?.expand();
+const API = location.origin + '/api';
+const userId = tg?.initDataUnsafe?.user?.id;
+
+let currentAdmin = null;
+let isSubscribed = false;
+
+async function loadList() {
+  const el = document.getElementById('ch-list');
+  el.innerHTML = '<div class="empty">Загрузка...</div>';
+  const res = await fetch(API + '/channels');
+  const channels = await res.json();
+  if (!channels.length) { el.innerHTML = '<div class="empty">Каналов пока нет</div>'; return; }
+
+  // Check subscriptions
+  let subSet = new Set();
+  if (userId) {
+    await Promise.all(channels.map(async c => {
+      const r = await fetch(`${API}/channels/${c.admin_id}/subscribed?user_id=${userId}`);
+      const d = await r.json();
+      if (d.subscribed) subSet.add(c.admin_id);
+    }));
+  }
+
+  el.innerHTML = channels.map(c => `
+    <div class="ch-card" onclick="openChannel(${c.admin_id})">
+      <div class="ch-av">
+        ${c.avatar_url ? `<img src="${c.avatar_url}" alt="">` : c.pseudonym[0].toUpperCase()}
+      </div>
+      <div class="ch-info">
+        <div class="ch-title">${esc(c.title)}</div>
+        <div class="ch-desc">${esc(c.description || c.pseudonym)}</div>
+      </div>
+      <button class="sub-btn ${subSet.has(c.admin_id) ? 'subscribed' : ''}"
+        onclick="event.stopPropagation(); quickSub(${c.admin_id}, this)">
+        ${subSet.has(c.admin_id) ? 'Отписаться' : 'Подписаться'}
+      </button>
+    </div>
+  `).join('');
+}
+
+async function quickSub(adminId, btn) {
+  if (!userId) return;
+  const subed = btn.classList.contains('subscribed');
+  const method = subed ? 'DELETE' : 'POST';
+  await fetch(`${API}/channels/${adminId}/subscribe?user_id=${userId}`, { method });
+  btn.classList.toggle('subscribed', !subed);
+  btn.textContent = subed ? 'Подписаться' : 'Отписаться';
+}
+
+async function openChannel(adminId) {
+  const res  = await fetch(API + '/admins/' + adminId);
+  const adm  = await res.json();
+  currentAdmin = adm;
+
+  const av = document.getElementById('d-av');
+  av.innerHTML = adm.channel_avatar_url
+    ? `<img src="${adm.channel_avatar_url}" alt="">`
+    : adm.pseudonym[0].toUpperCase();
+
+  document.getElementById('d-title').textContent = adm.channel_title || adm.pseudonym;
+  document.getElementById('d-desc').textContent  = adm.channel_description || '';
+
+  if (userId) {
+    const r = await fetch(`${API}/channels/${adminId}/subscribed?user_id=${userId}`);
+    const d = await r.json();
+    isSubscribed = d.subscribed;
+  }
+  updateSubBtn();
+
+  await loadPosts(adminId);
+
+  document.getElementById('list-view').style.display = 'none';
+  document.getElementById('detail').style.display = '';
+}
+
+function showList() {
+  document.getElementById('detail').style.display = 'none';
+  document.getElementById('list-view').style.display = '';
+}
+
+function updateSubBtn() {
+  const btn = document.getElementById('sub-toggle');
+  btn.textContent = isSubscribed ? 'Отписаться' : 'Подписаться';
+  btn.classList.toggle('active', !isSubscribed);
+}
+
+async function toggleSub() {
+  if (!userId || !currentAdmin) return;
+  const method = isSubscribed ? 'DELETE' : 'POST';
+  await fetch(`${API}/channels/${currentAdmin.id}/subscribe?user_id=${userId}`, { method });
+  isSubscribed = !isSubscribed;
+  updateSubBtn();
+}
+
+async function loadPosts(adminId) {
+  const el = document.getElementById('posts');
+  el.innerHTML = '<div class="empty">Загрузка постов...</div>';
+  const res   = await fetch(`${API}/channels/${adminId}/posts?limit=20`);
+  const posts = await res.json();
+
+  if (!posts.length) { el.innerHTML = '<div class="empty">Постов пока нет</div>'; return; }
+
+  el.innerHTML = posts.map(p => {
+    const media = (p.media_urls || []);
+    const imgs = media.filter(m => m.type === 'photo' || typeof m === 'string');
+    const cls = imgs.length === 1 ? 'single' : 'multi';
+    const imgHtml = imgs.map(m => {
+      const url = typeof m === 'string' ? m : m.url;
+      return `<img class="${cls}" src="${url}" alt="" onclick="openLb('${url}')">`;
+    }).join('');
+
+    return `
+      <div class="post">
+        ${p.content ? `<div class="post-text">${esc(p.content)}</div>` : ''}
+        ${imgHtml ? `<div class="post-media">${imgHtml}</div>` : ''}
+        <div class="post-meta">
+          <span>${new Date(p.created_at).toLocaleDateString('ru', {day:'numeric',month:'short'})}</span>
+          <span>${p.views} просм.</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function openLb(url) {
+  document.getElementById('lb-img').src = url;
+  document.getElementById('lb').classList.add('open');
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+loadList();
+</script>
+</body>
+</html>
