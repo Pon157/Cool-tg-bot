@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Отзывы</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a;
+    --text: #e8eaf0; --muted: #7a7e91; --accent: #4f7ef8;
+    --gold: #e8b94a; --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+  .header { padding: 18px 16px 10px; border-bottom: 1px solid var(--border); }
+  .header h1 { font-size: 17px; font-weight: 600; }
+  .tabs { display: flex; border-bottom: 1px solid var(--border); }
+  .tab {
+    flex: 1; padding: 11px 0; text-align: center; font-size: 13px;
+    color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent;
+    transition: color 0.15s;
+  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .list { padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 14px;
+  }
+  .card-top { display: flex; justify-content: space-between; align-items: flex-start; }
+  .author { font-size: 14px; font-weight: 500; }
+  .target { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .stars { color: var(--gold); font-size: 14px; letter-spacing: 1px; }
+  .text  { font-size: 13px; color: #c8ccdc; margin-top: 9px; line-height: 1.5; }
+  .date  { font-size: 11px; color: var(--muted); margin-top: 8px; }
+  .media-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .media-row img {
+    width: 72px; height: 72px; border-radius: 6px; object-fit: cover; cursor: pointer;
+  }
+  .empty { text-align: center; padding: 60px 20px; color: var(--muted); font-size: 14px; }
+
+  /* Lightbox */
+  .lb { display:none; position:fixed; inset:0; background:rgba(0,0,0,.9); z-index:200;
+        align-items:center; justify-content:center; }
+  .lb.open { display:flex; }
+  .lb img { max-width:95vw; max-height:90vh; border-radius:6px; }
+  .lb-close { position:fixed; top:14px; right:16px; background:none; border:none;
+               color:#fff; font-size:26px; cursor:pointer; z-index:201; }
+</style>
+</head>
+<body>
+<div class="header"><h1>Отзывы</h1></div>
+<div class="tabs">
+  <div class="tab active" id="tab-all"  onclick="switchTab('all')">Все</div>
+  <div class="tab"        id="tab-mine" onclick="switchTab('mine')">Мои</div>
+</div>
+<div class="list" id="list"></div>
+
+<div class="lb" id="lb">
+  <button class="lb-close" onclick="closeLb()">&#x2715;</button>
+  <img id="lb-img" src="" alt="">
+</div>
+
+<script>
+const tg = window.Telegram?.WebApp;
+tg?.expand();
+const API = location.origin + '/api';
+const userId = tg?.initDataUnsafe?.user?.id;
+
+let currentTab = 'all';
+
+async function switchTab(tab) {
+  currentTab = tab;
+  document.getElementById('tab-all').classList.toggle('active', tab === 'all');
+  document.getElementById('tab-mine').classList.toggle('active', tab === 'mine');
+  await loadReviews();
+}
+
+async function loadReviews() {
+  const list = document.getElementById('list');
+  list.innerHTML = '<div class="empty">Загрузка...</div>';
+
+  let url = currentTab === 'all'
+    ? `${API}/reviews?limit=50`
+    : `${API}/reviews/user/${userId}`;
+
+  const res = await fetch(url);
+  const reviews = await res.json();
+
+  if (!reviews.length) {
+    list.innerHTML = '<div class="empty">Отзывов пока нет</div>';
+    return;
+  }
+
+  list.innerHTML = reviews.map(r => {
+    const stars = '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating);
+    const media = (r.media_urls || [])
+      .filter(m => m.type === 'photo' || typeof m === 'string')
+      .map(m => {
+        const url = typeof m === 'string' ? m : m.url;
+        return `<img src="${url}" alt="" onclick="openLb('${url}')">`;
+      }).join('');
+
+    return `
+      <div class="card">
+        <div class="card-top">
+          <div>
+            <div class="author">${esc(r.user_pseudonym || 'Аноним')}</div>
+            ${r.admin_pseudonym ? `<div class="target">администратору ${esc(r.admin_pseudonym)}</div>` : ''}
+          </div>
+          <div class="stars">${stars}</div>
+        </div>
+        ${r.text ? `<div class="text">${esc(r.text)}</div>` : ''}
+        ${media ? `<div class="media-row">${media}</div>` : ''}
+        <div class="date">${new Date(r.created_at).toLocaleDateString('ru')}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function openLb(url) {
+  document.getElementById('lb-img').src = url;
+  document.getElementById('lb').classList.add('open');
+}
+function closeLb() { document.getElementById('lb').classList.remove('open'); }
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+loadReviews();
+</script>
+</body>
+</html>
