@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Профиль</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a;
+    --text: #e8eaf0; --muted: #7a7e91; --accent: #4f7ef8;
+    --green: #3ecf75; --gold: #e8b94a; --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+
+  .page { padding: 20px 16px; max-width: 480px; margin: 0 auto; }
+  .card-img {
+    width: 100%; border-radius: var(--radius);
+    margin-bottom: 16px; display: block;
+  }
+  .block {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px; margin-bottom: 14px;
+  }
+  .block .label { font-size: 11px; color: var(--muted); text-transform: uppercase;
+                  letter-spacing: .5px; margin-bottom: 8px; }
+  .block .value { font-size: 14px; line-height: 1.5; }
+  .section-title { font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+
+  .rec-item {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 12px; margin-bottom: 10px;
+  }
+  .rec-item .tone { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+  .rec-item .text { font-size: 13px; line-height: 1.5; }
+  .rec-item .tags { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+  .review-item {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 12px; margin-bottom: 10px;
+  }
+  .review-item .admin { font-size: 13px; font-weight: 500; }
+  .review-item .stars { color: var(--gold); font-size: 13px; margin: 4px 0; }
+  .review-item .txt   { font-size: 13px; color: #c8ccdc; }
+  .review-item .date  { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+  .empty { color: var(--muted); font-size: 13px; padding: 16px 0; }
+  .tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  .tab {
+    flex: 1; padding: 10px 0; text-align: center; font-size: 13px;
+    color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent;
+  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="tabs">
+    <div class="tab active" id="t-profile"  onclick="switchTab('profile')">Профиль</div>
+    <div class="tab"        id="t-recs"     onclick="switchTab('recs')">Рекомендации</div>
+    <div class="tab"        id="t-reviews"  onclick="switchTab('reviews')">Отзывы</div>
+  </div>
+
+  <!-- Profile tab -->
+  <div id="tab-profile">
+    <img id="card-img" class="card-img" src="" alt="" style="display:none">
+    <div class="block">
+      <div class="label">Псевдоним</div>
+      <div class="value" id="p-pseudo">—</div>
+    </div>
+    <div class="block">
+      <div class="label">Возраст</div>
+      <div class="value" id="p-age">—</div>
+    </div>
+    <div class="block">
+      <div class="label">Характеристики</div>
+      <div class="value" id="p-chars">—</div>
+    </div>
+    <div class="block">
+      <div class="label">Увлечения</div>
+      <div class="value" id="p-hobbies">—</div>
+    </div>
+  </div>
+
+  <!-- Recs tab -->
+  <div id="tab-recs" style="display:none">
+    <div class="section-title">Рекомендации от ИИ</div>
+    <div id="recs-list"><div class="empty">Загрузка...</div></div>
+  </div>
+
+  <!-- Reviews tab -->
+  <div id="tab-reviews" style="display:none">
+    <div class="section-title">Мои отзывы</div>
+    <div id="reviews-list"><div class="empty">Загрузка...</div></div>
+  </div>
+</div>
+
+<script>
+const tg = window.Telegram?.WebApp;
+tg?.expand();
+const API   = location.origin + '/api';
+const userId = tg?.initDataUnsafe?.user?.id;
+
+// Profile data comes via URL param or Telegram init data
+const params = new URLSearchParams(location.search);
+const uid = params.get('uid') || userId;
+
+async function loadProfile() {
+  if (!uid) return;
+  // We don't expose a public /users endpoint — data passed via URL params
+  const pseudo  = params.get('pseudo')  || '';
+  const age     = params.get('age')     || '—';
+  const chars   = params.get('chars')   || '—';
+  const hobbies = params.get('hobbies') || '—';
+  const cardUrl = params.get('card')    || '';
+
+  document.getElementById('p-pseudo').textContent  = pseudo || '—';
+  document.getElementById('p-age').textContent     = age;
+  document.getElementById('p-chars').textContent   = chars;
+  document.getElementById('p-hobbies').textContent = hobbies;
+
+  if (cardUrl) {
+    const img = document.getElementById('card-img');
+    img.src = cardUrl;
+    img.style.display = '';
+  }
+}
+
+async function loadRecs() {
+  const el = document.getElementById('recs-list');
+  if (!uid) { el.innerHTML = '<div class="empty">Недоступно</div>'; return; }
+  // Recs are fetched via bot — shown in bot profile; here we show a placeholder
+  el.innerHTML = '<div class="empty">Рекомендации доступны в боте через раздел "Мой профиль".</div>';
+}
+
+async function loadReviews() {
+  const el = document.getElementById('reviews-list');
+  if (!uid) { el.innerHTML = '<div class="empty">Недоступно</div>'; return; }
+  const res     = await fetch(`${API}/reviews/user/${uid}`);
+  const reviews = await res.json();
+  if (!reviews.length) { el.innerHTML = '<div class="empty">Отзывов пока нет</div>'; return; }
+  el.innerHTML = reviews.map(r => {
+    const stars = '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating);
+    return `
+      <div class="review-item">
+        <div class="admin">${esc(r.admin_pseudonym || '—')}</div>
+        <div class="stars">${stars}</div>
+        ${r.text ? `<div class="txt">${esc(r.text)}</div>` : ''}
+        <div class="date">${new Date(r.created_at).toLocaleDateString('ru')}</div>
+      </div>`;
+  }).join('');
+}
+
+function switchTab(tab) {
+  ['profile','recs','reviews'].forEach(t => {
+    document.getElementById('tab-'+t).style.display = t === tab ? '' : 'none';
+    document.getElementById('t-'+t).classList.toggle('active', t === tab);
+  });
+  if (tab === 'recs' && document.getElementById('recs-list').innerHTML.includes('Загрузка')) loadRecs();
+  if (tab === 'reviews' && document.getElementById('reviews-list').innerHTML.includes('Загрузка')) loadReviews();
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+loadProfile();
+</script>
+</body>
+</html>
