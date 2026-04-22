@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Администраторы</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg:        #0f1117;
+    --surface:   #1a1d27;
+    --border:    #2a2d3a;
+    --text:      #e8eaf0;
+    --muted:     #7a7e91;
+    --accent:    #4f7ef8;
+    --green:     #3ecf75;
+    --red:       #e05252;
+    --radius:    10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; min-height: 100vh; }
+  .header { padding: 18px 16px 10px; border-bottom: 1px solid var(--border); }
+  .header h1 { font-size: 17px; font-weight: 600; }
+  .header p  { font-size: 13px; color: var(--muted); margin-top: 3px; }
+  .list { padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .card:active { background: #22263a; }
+  .avatar {
+    width: 48px; height: 48px; border-radius: 50%;
+    background: var(--border);
+    object-fit: cover; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; font-weight: 600; color: var(--muted);
+  }
+  .avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+  .info { flex: 1; min-width: 0; }
+  .name { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .status-dot.online  { background: var(--green); }
+  .status-dot.offline { background: var(--muted); }
+  .rating { font-size: 12px; color: var(--muted); }
+  .empty { text-align: center; padding: 60px 20px; color: var(--muted); font-size: 14px; }
+  .skeleton {
+    background: linear-gradient(90deg, var(--border) 25%, #2e3246 50%, var(--border) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.3s infinite;
+    border-radius: 6px;
+  }
+  @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+  .sk-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 14px;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .sk-av  { width:48px; height:48px; border-radius:50%; flex-shrink:0; }
+  .sk-l1  { height:14px; width:120px; margin-bottom:8px; }
+  .sk-l2  { height:11px; width:80px; }
+  /* Detail overlay */
+  .overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7);
+    z-index: 100; align-items: flex-end; justify-content: center;
+  }
+  .overlay.open { display: flex; }
+  .sheet {
+    background: var(--surface); border-top: 1px solid var(--border);
+    border-radius: 14px 14px 0 0; width: 100%; padding: 20px 20px 32px;
+    max-height: 80vh; overflow-y: auto;
+  }
+  .sheet-avatar {
+    width: 72px; height: 72px; border-radius: 50%;
+    background: var(--border); margin: 0 auto 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px; font-weight: 700; color: var(--muted); overflow: hidden;
+  }
+  .sheet-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .sheet h2 { text-align: center; font-size: 17px; font-weight: 600; }
+  .sheet .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--border); border-radius: 20px;
+    padding: 3px 10px; font-size: 12px; color: var(--muted);
+    margin: 8px auto 0; display: block; width: fit-content; text-align: center;
+  }
+  .sheet-row { margin-top: 14px; }
+  .sheet-row .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+  .sheet-row .value { font-size: 14px; }
+  .btn-primary {
+    display: block; width: 100%; margin-top: 20px;
+    background: var(--accent); color: #fff; border: none;
+    padding: 13px; border-radius: var(--radius); font-size: 15px;
+    cursor: pointer; font-weight: 500;
+  }
+  .btn-primary:active { opacity: .85; }
+  .close-btn {
+    position: absolute; top: 14px; right: 16px;
+    background: none; border: none; color: var(--muted); font-size: 22px; cursor: pointer;
+  }
+  .sheet-wrap { position: relative; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Администраторы</h1>
+  <p id="subtitle">Загрузка...</p>
+</div>
+
+<div class="list" id="list"></div>
+
+<div class="overlay" id="overlay">
+  <div class="sheet sheet-wrap" id="sheet">
+    <button class="close-btn" onclick="closeSheet()">&#x2715;</button>
+    <div class="sheet-avatar" id="sh-av"></div>
+    <h2 id="sh-name"></h2>
+    <div class="badge" id="sh-status"></div>
+    <div class="sheet-row" id="sh-age-row" style="display:none">
+      <div class="label">Возраст</div>
+      <div class="value" id="sh-age"></div>
+    </div>
+    <div class="sheet-row" id="sh-desc-row" style="display:none">
+      <div class="label">О себе</div>
+      <div class="value" id="sh-desc"></div>
+    </div>
+    <div class="sheet-row" id="sh-hobbies-row" style="display:none">
+      <div class="label">Увлечения</div>
+      <div class="value" id="sh-hobbies"></div>
+    </div>
+    <div class="sheet-row">
+      <div class="label">Рейтинг</div>
+      <div class="value" id="sh-rating"></div>
+    </div>
+    <button class="btn-primary" id="sh-btn" onclick="startDialog()">Написать</button>
+  </div>
+</div>
+
+<script>
+const tg = window.Telegram?.WebApp;
+tg?.expand();
+const API = location.origin + '/api';
+let selectedAdmin = null;
+
+async function load() {
+  const list = document.getElementById('list');
+  list.innerHTML = Array(4).fill(`
+    <div class="sk-card">
+      <div class="skeleton sk-av"></div>
+      <div style="flex:1">
+        <div class="skeleton sk-l1"></div>
+        <div class="skeleton sk-l2"></div>
+      </div>
+    </div>
+  `).join('');
+
+  const res = await fetch(API + '/admins');
+  const admins = await res.json();
+
+  const online  = admins.filter(a => a.is_online).length;
+  document.getElementById('subtitle').textContent =
+    `${admins.length} администраторов, ${online} онлайн`;
+
+  if (!admins.length) {
+    list.innerHTML = '<div class="empty">Администраторы не найдены</div>';
+    return;
+  }
+
+  list.innerHTML = admins.map(a => `
+    <div class="card" onclick="openSheet(${a.id})">
+      <div class="avatar">
+        ${a.avatar_url ? `<img src="${a.avatar_url}" alt="">` : a.pseudonym[0].toUpperCase()}
+      </div>
+      <div class="info">
+        <div class="name">${esc(a.pseudonym)}</div>
+        <div class="meta">
+          ${a.avg_rating > 0 ? `★ ${a.avg_rating.toFixed(1)} &nbsp;·&nbsp; ` : ''}
+          ${a.reviews_count} отз.
+          ${a.age ? ` &nbsp;·&nbsp; ${esc(a.age)}` : ''}
+        </div>
+      </div>
+      <div class="status-dot ${a.is_online ? 'online' : 'offline'}"></div>
+    </div>
+  `).join('');
+}
+
+async function openSheet(id) {
+  const res = await fetch(API + '/admins/' + id);
+  const a = await res.json();
+  selectedAdmin = a;
+
+  const av = document.getElementById('sh-av');
+  av.innerHTML = a.avatar_url ? `<img src="${a.avatar_url}" alt="">` : a.pseudonym[0].toUpperCase();
+
+  document.getElementById('sh-name').textContent = a.pseudonym;
+  document.getElementById('sh-status').textContent =
+    a.is_online ? 'Онлайн' : ('Был(а): ' + (a.last_seen ? new Date(a.last_seen).toLocaleDateString('ru') : 'давно'));
+
+  setRow('sh-age-row', 'sh-age', a.age);
+  setRow('sh-desc-row', 'sh-desc', a.description);
+  setRow('sh-hobbies-row', 'sh-hobbies', a.hobbies);
+
+  document.getElementById('sh-rating').textContent = a.avg_rating > 0
+    ? `★ ${a.avg_rating.toFixed(1)}`
+    : 'Нет отзывов';
+
+  document.getElementById('overlay').classList.add('open');
+}
+
+function setRow(rowId, valId, val) {
+  const row = document.getElementById(rowId);
+  if (val) { row.style.display = ''; document.getElementById(valId).textContent = val; }
+  else { row.style.display = 'none'; }
+}
+
+function closeSheet() {
+  document.getElementById('overlay').classList.remove('open');
+}
+
+function startDialog() {
+  if (!selectedAdmin) return;
+  closeSheet();
+  tg?.sendData(JSON.stringify({ action: 'start_dialog', admin_id: selectedAdmin.id }));
+  tg?.close();
+}
+
+document.getElementById('overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('overlay')) closeSheet();
+});
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+load();
+</script>
+</body>
+</html>
