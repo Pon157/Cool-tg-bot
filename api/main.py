@@ -16,7 +16,8 @@ from api.routes import router as api_router
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Anon Support Bot API", docs_url="/api/docs")
+# Теперь документация будет по адресу /docs
+app = FastAPI(title="Anon Support Bot API", docs_url="/docs")
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,10 +26,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# REST endpoints
-app.include_router(api_router, prefix="/api")
+# Убрали prefix="/api", чтобы фронтенд мог достучаться до /auth/login и прочих
+app.include_router(api_router)
 
-# Serve mini-app HTML files from ./webapp/
+# Раздача статики остается прежней
 app.mount("/webapp", StaticFiles(directory="webapp", html=True), name="webapp")
 
 
