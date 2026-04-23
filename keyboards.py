@@ -13,8 +13,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
 from config import settings
 
-# ИСПРАВЛЕНИЕ: Добавляем /webapp к базовому URL, так как FastAPI раздает статику именно по этому пути
-WU = f"{settings.WEBAPP_URL.rstrip('/')}/webapp"
+# Теперь WU — это только базовый домен (напр. https://domain.ru)
+WU = settings.WEBAPP_URL.rstrip('/')
 
 
 # ──────────────────────────────────────────────────────
@@ -27,19 +27,19 @@ def main_menu(is_admin: bool = False, is_superadmin: bool = False) -> ReplyKeybo
           KeyboardButton(text="👤 Мой профиль"))
     b.row(
         KeyboardButton(text="👥 Администраторы",
-                       web_app=WebAppInfo(url=f"{WU}/admins.html")),
+                       web_app=WebAppInfo(url=f"{WU}/webapp/admins.html")),
         KeyboardButton(text="⭐ Отзывы",
-                       web_app=WebAppInfo(url=f"{WU}/reviews.html")),
+                       web_app=WebAppInfo(url=f"{WU}/webapp/reviews.html")),
     )
     b.row(KeyboardButton(text="📺 Каналы",
-                         web_app=WebAppInfo(url=f"{WU}/channels.html")))
+                         web_app=WebAppInfo(url=f"{WU}/webapp/channels.html")))
     
     if is_admin:
         b.row(KeyboardButton(text="🛠 Панель администратора",
-                             web_app=WebAppInfo(url=f"{WU}/admin_panel.html")))
+                             web_app=WebAppInfo(url=f"{WU}/webapp/admin_panel.html")))
     if is_superadmin:
         b.row(KeyboardButton(text="⚡ Суперадмин",
-                             web_app=WebAppInfo(url=f"{WU}/superadmin.html")))
+                             web_app=WebAppInfo(url=f"{WU}/webapp/superadmin.html")))
     
     return b.as_markup(resize_keyboard=True)
 
@@ -173,7 +173,7 @@ def admin_panel_menu_kb() -> InlineKeyboardMarkup:
     b.row(InlineKeyboardButton(text="📝 Заполнить профиль", callback_data="adm_fill_profile"))
     b.row(InlineKeyboardButton(
         text="🌐 Веб-панель",
-        web_app=WebAppInfo(url=f"{WU}/admin_panel.html"),
+        web_app=WebAppInfo(url=f"{WU}/webapp/admin_panel.html"),
     ))
     return b.as_markup()
 
@@ -209,7 +209,7 @@ def superadmin_menu_kb() -> InlineKeyboardMarkup:
     b.row(InlineKeyboardButton(text="📣 Рассылка",            callback_data="sa_broadcast"))
     b.row(InlineKeyboardButton(
         text="🌐 Веб-панель статистики",
-        web_app=WebAppInfo(url=f"{WU}/superadmin.html"),
+        web_app=WebAppInfo(url=f"{WU}/webapp/superadmin.html"),
     ))
     return b.as_markup()
 
