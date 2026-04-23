@@ -13,7 +13,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
 from config import settings
 
-WU = settings.WEBAPP_URL   # short alias
+# ИСПРАВЛЕНИЕ: Добавляем /webapp к базовому URL, так как FastAPI раздает статику именно по этому пути
+WU = f"{settings.WEBAPP_URL.rstrip('/')}/webapp"
 
 
 # ──────────────────────────────────────────────────────
@@ -32,12 +33,14 @@ def main_menu(is_admin: bool = False, is_superadmin: bool = False) -> ReplyKeybo
     )
     b.row(KeyboardButton(text="📺 Каналы",
                          web_app=WebAppInfo(url=f"{WU}/channels.html")))
+    
     if is_admin:
         b.row(KeyboardButton(text="🛠 Панель администратора",
                              web_app=WebAppInfo(url=f"{WU}/admin_panel.html")))
     if is_superadmin:
         b.row(KeyboardButton(text="⚡ Суперадмин",
                              web_app=WebAppInfo(url=f"{WU}/superadmin.html")))
+    
     return b.as_markup(resize_keyboard=True)
 
 
