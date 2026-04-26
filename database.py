@@ -1,5 +1,6 @@
 """
-database.py — Полный слой доступа к БД через asyncpg.
+database.py — Полный слой доступа к БД через asyncpg. v2
+Добавлено: settings, rest, norm, admin_applications, norm_check_log
 """
 from __future__ import annotations
 
@@ -28,16 +29,38 @@ async def _run_migrations() -> None:
         await conn.execute(sql)
 
 
-# ─────────────────────────────────────────────
-# HELPERS
-# ─────────────────────────────────────────────
-
 def _row(r: Optional[asyncpg.Record]) -> Optional[Dict[str, Any]]:
     return dict(r) if r else None
 
 
 def _rows(rs: List[asyncpg.Record]) -> List[Dict[str, Any]]:
     return [dict(r) for r in rs]
+
+
+# ─────────────────────────────────────────────
+# SETTINGS
+# ─────────────────────────────────────────────
+
+async def get_setting(key: str, default: str = "") -> str:
+    async with pool.acquire() as c:
+        r = await c.fetchrow("SELECT value FROM settings WHERE key=$1", key)
+        return r["value"] if r else default
+
+
+async def set_setting(key: str, value: str) -> None:
+    async with pool.acquire() as c:
+        await c.execute(
+            """INSERT INTO settings (key, value, updated_at)
+               VALUES ($1,$2,NOW())
+               ON CONFLICT (key) DO UPDATE SET value=$2, updated_at=NOW()""",
+            key, value,
+        )
+
+
+async def get_all_settings() -> Dict[str, str]:
+    async with pool.acquire() as c:
+        rows = await c.fetch("SELECT key, value FROM settings")
+        return {r["key"]: r["value"] for r in rows}
 
 
 # ─────────────────────────────────────────────
@@ -54,7 +77,7 @@ async def upsert_user(telegram_id: int, username: Optional[str] = None) -> Dict:
         r = await c.fetchrow(
             """INSERT INTO users (telegram_id, username)
                VALUES ($1, $2)
-               ON CONFLICT (telegram_id) DO UPDATE SET username = EXCLUDED.username
+               ON CONFLICT (telegram_id) DO UPDATE SET username = COALESCE(EXCLUDED.username, users.username)
                RETURNING *""",
             telegram_id, username,
         )
@@ -78,7 +101,9 @@ async def get_all_users() -> List[Dict]:
 
 async def get_active_users() -> List[Dict]:
     async with pool.acquire() as c:
-        return _rows(await c.fetch("SELECT * FROM users WHERE is_banned=FALSE AND is_registered=TRUE"))
+        return _rows(await c.fetch(
+            "SELECT * FROM users WHERE is_banned=FALSE AND is_registered=TRUE"
+        ))
 
 
 async def ban_user(telegram_id: int, reason: str, issued_by: int) -> None:
@@ -145,11 +170,12 @@ async def get_admin_by_pseudonym(pseudonym: str) -> Optional[Dict]:
 
 
 async def get_all_admins() -> List[Dict]:
+    """Возвращает всех администраторов с рейтингом. Безопасен при пустой таблице reviews."""
     async with pool.acquire() as c:
         return _rows(await c.fetch(
             """SELECT a.*,
-                      COALESCE(AVG(r.rating),0)::FLOAT as avg_rating,
-                      COUNT(DISTINCT r.id) as reviews_count
+                      COALESCE(AVG(r.rating), 0)::FLOAT  AS avg_rating,
+                      COUNT(r.id)::INT                    AS reviews_count
                FROM admins a
                LEFT JOIN reviews r ON r.admin_id = a.id
                GROUP BY a.id
@@ -157,10 +183,13 @@ async def get_all_admins() -> List[Dict]:
         ))
 
 
-async def create_admin(telegram_id: int, username: str, pseudonym: str, password_hash: str) -> Dict:
+async def create_admin(
+    telegram_id: int, username: str, pseudonym: str, password_hash: str
+) -> Dict:
     async with pool.acquire() as c:
         r = await c.fetchrow(
-            """INSERT INTO admins (telegram_id, username, pseudonym, password_hash, channel_title)
+            """INSERT INTO admins
+               (telegram_id, username, pseudonym, password_hash, channel_title)
                VALUES ($1,$2,$3,$4,$5) RETURNING *""",
             telegram_id, username, pseudonym, password_hash,
             f"Канал {pseudonym}",
@@ -177,9 +206,13 @@ async def update_admin(admin_id: int, **kwargs) -> Optional[Dict]:
         return _row(await c.fetchrow(sql, admin_id, *kwargs.values()))
 
 
-async def delete_admin(admin_id: int) -> None:
+async def delete_admin(admin_id: int) -> Optional[int]:
+    """Возвращает telegram_id удалённого администратора."""
     async with pool.acquire() as c:
-        await c.execute("DELETE FROM admins WHERE id=$1", admin_id)
+        r = await c.fetchrow(
+            "DELETE FROM admins WHERE id=$1 RETURNING telegram_id", admin_id
+        )
+        return r["telegram_id"] if r else None
 
 
 async def set_admin_online(telegram_id: int, is_online: bool) -> None:
@@ -188,6 +221,26 @@ async def set_admin_online(telegram_id: int, is_online: bool) -> None:
             "UPDATE admins SET is_online=$1, last_seen=NOW() WHERE telegram_id=$2",
             is_online, telegram_id,
         )
+
+
+async def set_admin_rest(admin_id: int, is_on_rest: bool, rest_until=None) -> None:
+    async with pool.acquire() as c:
+        await c.execute(
+            "UPDATE admins SET is_on_rest=$1, rest_until=$2 WHERE id=$3",
+            is_on_rest, rest_until, admin_id,
+        )
+
+
+async def increment_admin_weekly_dialogs(admin_id: int) -> None:
+    async with pool.acquire() as c:
+        await c.execute(
+            "UPDATE admins SET weekly_dialogs=weekly_dialogs+1 WHERE id=$1", admin_id
+        )
+
+
+async def reset_all_weekly_dialogs() -> None:
+    async with pool.acquire() as c:
+        await c.execute("UPDATE admins SET weekly_dialogs=0")
 
 
 # ─────────────────────────────────────────────
@@ -212,7 +265,9 @@ async def get_dialog(dialog_id: int) -> Optional[Dict]:
 async def get_active_dialog_by_user(user_id: int) -> Optional[Dict]:
     async with pool.acquire() as c:
         return _row(await c.fetchrow(
-            "SELECT * FROM dialogs WHERE user_id=$1 AND status IN ('pending','active') ORDER BY created_at DESC LIMIT 1",
+            """SELECT * FROM dialogs
+               WHERE user_id=$1 AND status IN ('pending','active')
+               ORDER BY created_at DESC LIMIT 1""",
             user_id,
         ))
 
@@ -221,7 +276,9 @@ async def get_admin_active_dialogs(admin_id: int) -> List[Dict]:
     async with pool.acquire() as c:
         return _rows(await c.fetch(
             """SELECT d.*,
-                      COUNT(m.id) FILTER (WHERE m.is_read=FALSE AND m.sender_type='user') AS unread
+                      COUNT(m.id) FILTER (
+                          WHERE m.is_read=FALSE AND m.sender_type='user'
+                      )::INT AS unread
                FROM dialogs d
                LEFT JOIN messages m ON m.dialog_id=d.id
                WHERE d.admin_id=$1 AND d.status='active'
@@ -232,13 +289,14 @@ async def get_admin_active_dialogs(admin_id: int) -> List[Dict]:
 
 
 async def get_all_dialogs(limit: int = 50, offset: int = 0) -> List[Dict]:
-    """For superadmin moderation view"""
     async with pool.acquire() as c:
         return _rows(await c.fetch(
-            """SELECT d.*, a.pseudonym as admin_pseudonym, u.pseudonym as user_pseudonym
+            """SELECT d.*,
+                      a.pseudonym AS admin_pseudonym,
+                      u.pseudonym AS user_pseudonym
                FROM dialogs d
-               LEFT JOIN admins a ON d.admin_id=a.id
-               LEFT JOIN users u ON d.user_id=u.telegram_id
+               LEFT JOIN admins a ON d.admin_id = a.id
+               LEFT JOIN users  u ON d.user_id  = u.telegram_id
                ORDER BY d.created_at DESC LIMIT $1 OFFSET $2""",
             limit, offset,
         ))
@@ -246,9 +304,7 @@ async def get_all_dialogs(limit: int = 50, offset: int = 0) -> List[Dict]:
 
 async def accept_dialog(dialog_id: int, admin_id: int) -> bool:
     async with pool.acquire() as c:
-        existing = await c.fetchrow(
-            "SELECT status FROM dialogs WHERE id=$1", dialog_id
-        )
+        existing = await c.fetchrow("SELECT status FROM dialogs WHERE id=$1", dialog_id)
         if not existing or existing["status"] != "pending":
             return False
         await c.execute(
@@ -275,19 +331,19 @@ async def update_dialog_group_msg(dialog_id: int, message_id: int) -> None:
 async def user_had_dialog_with_admin(user_id: int, admin_id: int) -> bool:
     async with pool.acquire() as c:
         r = await c.fetchrow(
-            "SELECT id FROM dialogs WHERE user_id=$1 AND admin_id=$2 AND status='closed' LIMIT 1",
+            """SELECT id FROM dialogs
+               WHERE user_id=$1 AND admin_id=$2 AND status='closed' LIMIT 1""",
             user_id, admin_id,
         )
         return r is not None
 
 
 async def get_user_closed_dialogs(user_id: int) -> List[Dict]:
-    """Returns closed dialogs with admin info for review eligibility"""
     async with pool.acquire() as c:
         return _rows(await c.fetch(
-            """SELECT d.id, d.admin_id, d.closed_at, a.pseudonym as admin_pseudonym
+            """SELECT d.id, d.admin_id, d.closed_at, a.pseudonym AS admin_pseudonym
                FROM dialogs d
-               JOIN admins a ON d.admin_id=a.id
+               JOIN admins a ON d.admin_id = a.id
                WHERE d.user_id=$1 AND d.status='closed'
                ORDER BY d.closed_at DESC""",
             user_id,
@@ -308,14 +364,15 @@ async def save_message(
 ) -> Dict:
     async with pool.acquire() as c:
         r = await c.fetchrow(
-            """INSERT INTO messages (dialog_id, sender_type, content, media_url, media_type, telegram_message_id)
+            """INSERT INTO messages
+               (dialog_id, sender_type, content, media_url, media_type, telegram_message_id)
                VALUES ($1,$2,$3,$4,$5,$6) RETURNING *""",
             dialog_id, sender_type, content, media_url, media_type, telegram_message_id,
         )
         return dict(r)
 
 
-async def get_dialog_messages(dialog_id: int, limit: int = 100) -> List[Dict]:
+async def get_dialog_messages(dialog_id: int, limit: int = 200) -> List[Dict]:
     async with pool.acquire() as c:
         return _rows(await c.fetch(
             "SELECT * FROM messages WHERE dialog_id=$1 ORDER BY created_at ASC LIMIT $2",
@@ -326,7 +383,9 @@ async def get_dialog_messages(dialog_id: int, limit: int = 100) -> List[Dict]:
 async def get_dialog_text_for_ai(dialog_id: int) -> str:
     async with pool.acquire() as c:
         rows = await c.fetch(
-            "SELECT sender_type, content FROM messages WHERE dialog_id=$1 AND content IS NOT NULL ORDER BY created_at",
+            """SELECT sender_type, content FROM messages
+               WHERE dialog_id=$1 AND content IS NOT NULL
+               ORDER BY created_at""",
             dialog_id,
         )
         return "\n".join(f"[{r['sender_type']}]: {r['content']}" for r in rows)
@@ -366,8 +425,10 @@ async def get_admin_reviews(admin_id: int) -> List[Dict]:
     async with pool.acquire() as c:
         return _rows(await c.fetch(
             """SELECT r.*, u.pseudonym AS user_pseudonym
-               FROM reviews r JOIN users u ON r.user_id=u.telegram_id
-               WHERE r.admin_id=$1 ORDER BY r.created_at DESC""",
+               FROM reviews r
+               JOIN users u ON r.user_id = u.telegram_id
+               WHERE r.admin_id=$1
+               ORDER BY r.created_at DESC""",
             admin_id,
         ))
 
@@ -376,8 +437,10 @@ async def get_user_reviews(user_id: int) -> List[Dict]:
     async with pool.acquire() as c:
         return _rows(await c.fetch(
             """SELECT r.*, a.pseudonym AS admin_pseudonym
-               FROM reviews r JOIN admins a ON r.admin_id=a.id
-               WHERE r.user_id=$1 ORDER BY r.created_at DESC""",
+               FROM reviews r
+               JOIN admins a ON r.admin_id = a.id
+               WHERE r.user_id=$1
+               ORDER BY r.created_at DESC""",
             user_id,
         ))
 
@@ -387,8 +450,8 @@ async def get_all_reviews(limit: int = 50) -> List[Dict]:
         return _rows(await c.fetch(
             """SELECT r.*, a.pseudonym AS admin_pseudonym, u.pseudonym AS user_pseudonym
                FROM reviews r
-               JOIN admins a ON r.admin_id=a.id
-               JOIN users u ON r.user_id=u.telegram_id
+               JOIN admins a ON r.admin_id = a.id
+               JOIN users  u ON r.user_id  = u.telegram_id
                ORDER BY r.created_at DESC LIMIT $1""",
             limit,
         ))
@@ -398,7 +461,9 @@ async def get_all_reviews(limit: int = 50) -> List[Dict]:
 # CHANNEL POSTS
 # ─────────────────────────────────────────────
 
-async def create_channel_post(admin_id: int, content: Optional[str], media_urls: Optional[list] = None) -> Dict:
+async def create_channel_post(
+    admin_id: int, content: Optional[str], media_urls: Optional[list] = None
+) -> Dict:
     async with pool.acquire() as c:
         r = await c.fetchrow(
             "INSERT INTO channel_posts (admin_id, content, media_urls) VALUES ($1,$2,$3) RETURNING *",
@@ -410,14 +475,17 @@ async def create_channel_post(admin_id: int, content: Optional[str], media_urls:
 async def get_admin_posts(admin_id: int, limit: int = 20, offset: int = 0) -> List[Dict]:
     async with pool.acquire() as c:
         return _rows(await c.fetch(
-            "SELECT * FROM channel_posts WHERE admin_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+            """SELECT * FROM channel_posts WHERE admin_id=$1
+               ORDER BY created_at DESC LIMIT $2 OFFSET $3""",
             admin_id, limit, offset,
         ))
 
 
 async def delete_channel_post(post_id: int, admin_id: int) -> None:
     async with pool.acquire() as c:
-        await c.execute("DELETE FROM channel_posts WHERE id=$1 AND admin_id=$2", post_id, admin_id)
+        await c.execute(
+            "DELETE FROM channel_posts WHERE id=$1 AND admin_id=$2", post_id, admin_id
+        )
 
 
 async def increment_post_views(post_id: int) -> None:
@@ -432,7 +500,8 @@ async def increment_post_views(post_id: int) -> None:
 async def subscribe(user_id: int, admin_id: int) -> None:
     async with pool.acquire() as c:
         await c.execute(
-            "INSERT INTO channel_subscriptions (user_id, admin_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+            """INSERT INTO channel_subscriptions (user_id, admin_id)
+               VALUES ($1,$2) ON CONFLICT DO NOTHING""",
             user_id, admin_id,
         )
 
@@ -474,11 +543,14 @@ async def get_user_subscriptions(user_id: int) -> List[int]:
 # AI RECOMMENDATIONS
 # ─────────────────────────────────────────────
 
-async def save_recommendation(user_id: int, dialog_id: int, recommendation: str,
-                               keywords: list, emotional_tone: str = "") -> Dict:
+async def save_recommendation(
+    user_id: int, dialog_id: int, recommendation: str,
+    keywords: list, emotional_tone: str = "",
+) -> Dict:
     async with pool.acquire() as c:
         r = await c.fetchrow(
-            """INSERT INTO ai_recommendations (user_id, dialog_id, recommendation, keywords, emotional_tone)
+            """INSERT INTO ai_recommendations
+               (user_id, dialog_id, recommendation, keywords, emotional_tone)
                VALUES ($1,$2,$3,$4,$5) RETURNING *""",
             user_id, dialog_id, recommendation,
             json.dumps(keywords), emotional_tone,
@@ -489,7 +561,8 @@ async def save_recommendation(user_id: int, dialog_id: int, recommendation: str,
 async def get_user_recommendations(user_id: int, limit: int = 10) -> List[Dict]:
     async with pool.acquire() as c:
         return _rows(await c.fetch(
-            "SELECT * FROM ai_recommendations WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2",
+            """SELECT * FROM ai_recommendations WHERE user_id=$1
+               ORDER BY created_at DESC LIMIT $2""",
             user_id, limit,
         ))
 
@@ -506,13 +579,19 @@ async def get_stats() -> Dict:
         total_dialogs  = await c.fetchval("SELECT COUNT(*) FROM dialogs")
         total_messages = await c.fetchval("SELECT COUNT(*) FROM messages")
         reviews_count  = await c.fetchval("SELECT COUNT(*) FROM reviews")
-        avg_rating_raw = await c.fetchval("SELECT ROUND(AVG(rating)::numeric,2) FROM reviews")
-        banned_users   = await c.fetchval("SELECT COUNT(*) FROM users WHERE is_banned=TRUE")
-        online_admins  = await c.fetchval("SELECT COUNT(*) FROM admins WHERE is_online=TRUE")
+        avg_rating_raw = await c.fetchval(
+            "SELECT ROUND(AVG(rating)::numeric, 2) FROM reviews"
+        )
+        banned_users  = await c.fetchval("SELECT COUNT(*) FROM users WHERE is_banned=TRUE")
+        online_admins = await c.fetchval("SELECT COUNT(*) FROM admins WHERE is_online=TRUE")
+        pending_apps  = await c.fetchval(
+            "SELECT COUNT(*) FROM admin_applications WHERE status='pending'"
+        )
 
         daily = await c.fetch(
             """SELECT DATE(created_at) AS d, COUNT(*) AS cnt
-               FROM messages WHERE created_at > NOW() - INTERVAL '7 days'
+               FROM messages
+               WHERE created_at > NOW() - INTERVAL '7 days'
                GROUP BY d ORDER BY d"""
         )
         return {
@@ -525,7 +604,10 @@ async def get_stats() -> Dict:
             "avg_rating":     float(avg_rating_raw) if avg_rating_raw else 0.0,
             "banned_users":   int(banned_users),
             "online_admins":  int(online_admins),
-            "daily_messages": [{"date": str(r["d"]), "count": int(r["cnt"])} for r in daily],
+            "pending_apps":   int(pending_apps),
+            "daily_messages": [
+                {"date": str(r["d"]), "count": int(r["cnt"])} for r in daily
+            ],
         }
 
 
@@ -533,10 +615,95 @@ async def get_stats() -> Dict:
 # BROADCASTS
 # ─────────────────────────────────────────────
 
-async def save_broadcast(content: str, sent_by: int, recipients: int, media_url: Optional[str] = None) -> Dict:
+async def save_broadcast(
+    content: str, sent_by: int, recipients: int, media_url: Optional[str] = None
+) -> Dict:
     async with pool.acquire() as c:
         r = await c.fetchrow(
-            "INSERT INTO broadcasts (content, sent_by, recipients_count, media_url) VALUES ($1,$2,$3,$4) RETURNING *",
+            """INSERT INTO broadcasts (content, sent_by, recipients_count, media_url)
+               VALUES ($1,$2,$3,$4) RETURNING *""",
             content, sent_by, recipients, media_url,
         )
         return dict(r)
+
+
+# ─────────────────────────────────────────────
+# ADMIN APPLICATIONS
+# ─────────────────────────────────────────────
+
+async def create_application(
+    telegram_id: int,
+    username: Optional[str],
+    age: str,
+    characteristics: str,
+    hobbies: str,
+    test_answers: list,
+    detailed_answers: list,
+) -> Dict:
+    async with pool.acquire() as c:
+        r = await c.fetchrow(
+            """INSERT INTO admin_applications
+               (telegram_id, username, age, characteristics, hobbies,
+                test_answers, detailed_answers)
+               VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *""",
+            telegram_id, username, age, characteristics, hobbies,
+            json.dumps(test_answers), json.dumps(detailed_answers),
+        )
+        return dict(r)
+
+
+async def get_pending_applications() -> List[Dict]:
+    async with pool.acquire() as c:
+        return _rows(await c.fetch(
+            "SELECT * FROM admin_applications WHERE status='pending' ORDER BY created_at"
+        ))
+
+
+async def update_application_status(app_id: int, status: str) -> Optional[Dict]:
+    async with pool.acquire() as c:
+        r = await c.fetchrow(
+            "UPDATE admin_applications SET status=$1 WHERE id=$2 RETURNING *",
+            status, app_id,
+        )
+        return _row(r)
+
+
+async def update_application_group_msg(app_id: int, message_id: int) -> None:
+    async with pool.acquire() as c:
+        await c.execute(
+            "UPDATE admin_applications SET group_message_id=$1 WHERE id=$2",
+            message_id, app_id,
+        )
+
+
+# ─────────────────────────────────────────────
+# NORM CHECK
+# ─────────────────────────────────────────────
+
+async def get_admins_for_norm_check() -> List[Dict]:
+    """Возвращает всех администраторов с weekly_dialogs и флагом отдыха."""
+    async with pool.acquire() as c:
+        return _rows(await c.fetch(
+            """SELECT id, telegram_id, username, pseudonym,
+                      weekly_dialogs, is_on_rest, rest_until
+               FROM admins
+               ORDER BY pseudonym"""
+        ))
+
+
+async def save_norm_check_log(
+    norm_value: int, fired_count: int, details: list
+) -> None:
+    async with pool.acquire() as c:
+        await c.execute(
+            """INSERT INTO norm_check_log (norm_value, fired_count, details)
+               VALUES ($1,$2,$3)""",
+            norm_value, fired_count, json.dumps(details),
+        )
+
+
+async def get_last_norm_checks(limit: int = 5) -> List[Dict]:
+    async with pool.acquire() as c:
+        return _rows(await c.fetch(
+            "SELECT * FROM norm_check_log ORDER BY checked_at DESC LIMIT $1", limit
+        ))
