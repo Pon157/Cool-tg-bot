@@ -1,7 +1,4 @@
--- =============================================
--- Anon Support Bot — Database Schema v2
--- =============================================
-
+-- Anon Support Bot — Schema v3
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- USERS
@@ -15,7 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
     avatar_url       TEXT,
     profile_card_url TEXT,
     is_banned        BOOLEAN NOT NULL DEFAULT FALSE,
-    warn_count       INT NOT NULL DEFAULT 0,
+    warn_count       INT     NOT NULL DEFAULT 0,
     is_registered    BOOLEAN NOT NULL DEFAULT FALSE,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -41,15 +38,20 @@ CREATE TABLE IF NOT EXISTS admins (
     is_profile_filled   BOOLEAN NOT NULL DEFAULT FALSE,
     is_on_rest          BOOLEAN NOT NULL DEFAULT FALSE,
     rest_until          DATE,
-    weekly_dialogs      INT NOT NULL DEFAULT 0,
+    weekly_dialogs      INT     NOT NULL DEFAULT 0,
+    -- Баланс
+    balance_messages    INT     NOT NULL DEFAULT 0,
+    balance_rub         NUMERIC(10,2) NOT NULL DEFAULT 0,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Добавляем новые поля к существующей таблице admins если обновляем
+-- Безопасное добавление новых колонок при обновлении
 DO $$ BEGIN
-    ALTER TABLE admins ADD COLUMN IF NOT EXISTS is_on_rest BOOLEAN NOT NULL DEFAULT FALSE;
-    ALTER TABLE admins ADD COLUMN IF NOT EXISTS rest_until DATE;
-    ALTER TABLE admins ADD COLUMN IF NOT EXISTS weekly_dialogs INT NOT NULL DEFAULT 0;
+    ALTER TABLE admins ADD COLUMN IF NOT EXISTS is_on_rest       BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE admins ADD COLUMN IF NOT EXISTS rest_until        DATE;
+    ALTER TABLE admins ADD COLUMN IF NOT EXISTS weekly_dialogs   INT NOT NULL DEFAULT 0;
+    ALTER TABLE admins ADD COLUMN IF NOT EXISTS balance_messages INT NOT NULL DEFAULT 0;
+    ALTER TABLE admins ADD COLUMN IF NOT EXISTS balance_rub      NUMERIC(10,2) NOT NULL DEFAULT 0;
 EXCEPTION WHEN others THEN NULL;
 END $$;
 
@@ -59,19 +61,19 @@ CREATE TABLE IF NOT EXISTS settings (
     value      TEXT NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
 INSERT INTO settings (key, value) VALUES
-    ('weekly_norm',       '10'),
-    ('norm_check_weekday','0'),
-    ('norm_check_hour',   '10'),
-    ('norm_enabled',      'true')
+    ('weekly_norm',        '10'),
+    ('norm_check_weekday', '0'),
+    ('norm_check_hour',    '10'),
+    ('norm_enabled',       'true'),
+    ('message_rate',       '0.1')
 ON CONFLICT (key) DO NOTHING;
 
 -- DIALOGS
 CREATE TABLE IF NOT EXISTS dialogs (
     id               SERIAL PRIMARY KEY,
     user_id          BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE,
-    admin_id         INT REFERENCES admins(id) ON DELETE SET NULL,
+    admin_id         INT    REFERENCES admins(id) ON DELETE SET NULL,
     status           VARCHAR(20) NOT NULL DEFAULT 'pending'
                          CHECK (status IN ('pending','active','closed')),
     is_anonymous     BOOLEAN NOT NULL DEFAULT FALSE,
@@ -101,8 +103,8 @@ CREATE INDEX IF NOT EXISTS idx_messages_dialog ON messages(dialog_id);
 CREATE TABLE IF NOT EXISTS reviews (
     id          SERIAL PRIMARY KEY,
     user_id     BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE,
-    admin_id    INT NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
-    dialog_id   INT NOT NULL REFERENCES dialogs(id) ON DELETE CASCADE,
+    admin_id    INT    NOT NULL REFERENCES admins(id)         ON DELETE CASCADE,
+    dialog_id   INT    NOT NULL REFERENCES dialogs(id)        ON DELETE CASCADE,
     text        TEXT,
     rating      INT NOT NULL CHECK (rating BETWEEN 1 AND 5),
     media_urls  JSONB NOT NULL DEFAULT '[]',
@@ -117,7 +119,7 @@ CREATE TABLE IF NOT EXISTS channel_posts (
     admin_id   INT NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
     content    TEXT,
     media_urls JSONB NOT NULL DEFAULT '[]',
-    views      INT NOT NULL DEFAULT 0,
+    views      INT  NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_channel_posts_admin ON channel_posts(admin_id);
@@ -125,7 +127,7 @@ CREATE INDEX IF NOT EXISTS idx_channel_posts_admin ON channel_posts(admin_id);
 -- CHANNEL SUBSCRIPTIONS
 CREATE TABLE IF NOT EXISTS channel_subscriptions (
     user_id    BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE,
-    admin_id   INT NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
+    admin_id   INT    NOT NULL REFERENCES admins(id)         ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (user_id, admin_id)
 );
@@ -134,7 +136,7 @@ CREATE TABLE IF NOT EXISTS channel_subscriptions (
 CREATE TABLE IF NOT EXISTS ai_recommendations (
     id             SERIAL PRIMARY KEY,
     user_id        BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE,
-    dialog_id      INT REFERENCES dialogs(id) ON DELETE SET NULL,
+    dialog_id      INT    REFERENCES dialogs(id) ON DELETE SET NULL,
     recommendation TEXT NOT NULL,
     keywords       JSONB NOT NULL DEFAULT '[]',
     emotional_tone VARCHAR(50),
@@ -148,7 +150,7 @@ CREATE TABLE IF NOT EXISTS broadcasts (
     content          TEXT NOT NULL,
     media_url        TEXT,
     sent_by          BIGINT NOT NULL,
-    recipients_count INT NOT NULL DEFAULT 0,
+    recipients_count INT  NOT NULL DEFAULT 0,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -177,6 +179,21 @@ CREATE TABLE IF NOT EXISTS admin_applications (
     group_message_id BIGINT,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- WITHDRAWAL REQUESTS (заявки на вывод)
+CREATE TABLE IF NOT EXISTS withdrawal_requests (
+    id          SERIAL PRIMARY KEY,
+    admin_id    INT    NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
+    amount_rub  NUMERIC(10,2) NOT NULL,
+    details     TEXT   NOT NULL,     -- реквизиты (карта, кошелёк и тп)
+    status      VARCHAR(20) NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending','approved','rejected')),
+    comment     TEXT,                -- комментарий суперадмина при отказе
+    reviewed_by BIGINT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    reviewed_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_withdraw_admin ON withdrawal_requests(admin_id);
 
 -- NORM CHECK LOG
 CREATE TABLE IF NOT EXISTS norm_check_log (
