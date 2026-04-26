@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Dict
 
 
 class Settings(BaseSettings):
@@ -19,20 +19,38 @@ class Settings(BaseSettings):
     QWEN_MODEL: str = "qwen-plus"
 
     ADMIN_GROUP_ID: int = 0
-    # ID топика (thread) в ADMIN_GROUP куда приходят заявки на администратора
     ADMIN_APPLY_TOPIC_ID: int = 0
-    SUPERADMIN_IDS: List[int] = []
 
-    JWT_SECRET: str = "change-me"
+    # Суперадмины: список Telegram ID
+    SUPERADMIN_IDS: List[int] = []
+    # Логины и пароли суперадминов в формате "login:password,login2:password2"
+    SUPERADMIN_CREDENTIALS: str = ""
+
+    JWT_SECRET: str = "change-me-to-random-string"
     JWT_ALGORITHM: str = "HS256"
 
-    # Базовый URL сайта (без /webapp), напр. https://yourdomain.com
-    WEBAPP_URL: str = "https://sadfsvdb.webtm.ru"
+    # Базовый URL сайта БЕЗ слеша в конце, напр. https://yourdomain.com
+    WEBAPP_URL: str = "https://yourdomain.com"
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
 
+    # Стоимость одного сообщения в рублях
+    MESSAGE_RATE: float = 0.1
+
     class Config:
         env_file = ".env"
+
+    def get_superadmin_credentials(self) -> Dict[str, str]:
+        """Парсит SUPERADMIN_CREDENTIALS в словарь {login: password}."""
+        result: Dict[str, str] = {}
+        if not self.SUPERADMIN_CREDENTIALS:
+            return result
+        for pair in self.SUPERADMIN_CREDENTIALS.split(","):
+            pair = pair.strip()
+            if ":" in pair:
+                login, pwd = pair.split(":", 1)
+                result[login.strip()] = pwd.strip()
+        return result
 
 
 settings = Settings()
