@@ -30,11 +30,11 @@ logger = logging.getLogger(__name__)
 
 def _build_session() -> AiohttpSession:
     if settings.SOCKS5_PROXY:
-        connector = ProxyConnector.from_url(settings.SOCKS5_PROXY)
         logger.info("SOCKS5 proxy: %s", settings.SOCKS5_PROXY)
+        # В aiogram 3.x прокси передается строкой напрямую в сессию
+        return AiohttpSession(proxy=settings.SOCKS5_PROXY)
     else:
-        connector = TCPConnector()
-    return AiohttpSession(connector=connector)
+        return AiohttpSession()
 
 
 async def on_startup(bot: Bot) -> None:
