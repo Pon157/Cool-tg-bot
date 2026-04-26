@@ -1,60 +1,83 @@
 -- =============================================
--- Anon Support Bot — Database Schema
+-- Anon Support Bot — Database Schema v2
 -- =============================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- USERS
 CREATE TABLE IF NOT EXISTS users (
-    telegram_id     BIGINT PRIMARY KEY,
-    username        VARCHAR(100),
-    pseudonym       VARCHAR(100),
-    age             VARCHAR(30),
-    characteristics TEXT,
-    hobbies         TEXT,
-    avatar_url      TEXT,
+    telegram_id      BIGINT PRIMARY KEY,
+    username         VARCHAR(100),
+    pseudonym        VARCHAR(100),
+    age              VARCHAR(30),
+    characteristics  TEXT,
+    hobbies          TEXT,
+    avatar_url       TEXT,
     profile_card_url TEXT,
-    is_banned       BOOLEAN NOT NULL DEFAULT FALSE,
-    warn_count      INT NOT NULL DEFAULT 0,
-    is_registered   BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    is_banned        BOOLEAN NOT NULL DEFAULT FALSE,
+    warn_count       INT NOT NULL DEFAULT 0,
+    is_registered    BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ADMINS
 CREATE TABLE IF NOT EXISTS admins (
-    id              SERIAL PRIMARY KEY,
-    telegram_id     BIGINT UNIQUE NOT NULL,
-    username        VARCHAR(100),
-    pseudonym       VARCHAR(100) UNIQUE NOT NULL,
-    password_hash   TEXT NOT NULL,
-    age             VARCHAR(30),
-    characteristics TEXT,
-    hobbies         TEXT,
-    description     TEXT,
-    avatar_url      TEXT,
-    -- Channel info
+    id                  SERIAL PRIMARY KEY,
+    telegram_id         BIGINT UNIQUE NOT NULL,
+    username            VARCHAR(100),
+    pseudonym           VARCHAR(100) UNIQUE NOT NULL,
+    password_hash       TEXT NOT NULL,
+    age                 VARCHAR(30),
+    characteristics     TEXT,
+    hobbies             TEXT,
+    description         TEXT,
+    avatar_url          TEXT,
     channel_title       VARCHAR(200),
     channel_description TEXT,
     channel_avatar_url  TEXT,
-    -- Status
-    is_online       BOOLEAN NOT NULL DEFAULT FALSE,
-    last_seen       TIMESTAMPTZ,
-    is_profile_filled BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    is_online           BOOLEAN NOT NULL DEFAULT FALSE,
+    last_seen           TIMESTAMPTZ,
+    is_profile_filled   BOOLEAN NOT NULL DEFAULT FALSE,
+    is_on_rest          BOOLEAN NOT NULL DEFAULT FALSE,
+    rest_until          DATE,
+    weekly_dialogs      INT NOT NULL DEFAULT 0,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Добавляем новые поля к существующей таблице admins если обновляем
+DO $$ BEGIN
+    ALTER TABLE admins ADD COLUMN IF NOT EXISTS is_on_rest BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE admins ADD COLUMN IF NOT EXISTS rest_until DATE;
+    ALTER TABLE admins ADD COLUMN IF NOT EXISTS weekly_dialogs INT NOT NULL DEFAULT 0;
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+-- SYSTEM SETTINGS
+CREATE TABLE IF NOT EXISTS settings (
+    key        VARCHAR(100) PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO settings (key, value) VALUES
+    ('weekly_norm',       '10'),
+    ('norm_check_weekday','0'),
+    ('norm_check_hour',   '10'),
+    ('norm_enabled',      'true')
+ON CONFLICT (key) DO NOTHING;
 
 -- DIALOGS
 CREATE TABLE IF NOT EXISTS dialogs (
-    id              SERIAL PRIMARY KEY,
-    user_id         BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE,
-    admin_id        INT REFERENCES admins(id) ON DELETE SET NULL,
-    status          VARCHAR(20) NOT NULL DEFAULT 'pending'
-                        CHECK (status IN ('pending','active','closed')),
-    is_anonymous    BOOLEAN NOT NULL DEFAULT FALSE,
-    group_message_id BIGINT,    -- message_id in admin group for editing
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    closed_at       TIMESTAMPTZ
+    id               SERIAL PRIMARY KEY,
+    user_id          BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE,
+    admin_id         INT REFERENCES admins(id) ON DELETE SET NULL,
+    status           VARCHAR(20) NOT NULL DEFAULT 'pending'
+                         CHECK (status IN ('pending','active','closed')),
+    is_anonymous     BOOLEAN NOT NULL DEFAULT FALSE,
+    group_message_id BIGINT,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    closed_at        TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_dialogs_user   ON dialogs(user_id);
 CREATE INDEX IF NOT EXISTS idx_dialogs_admin  ON dialogs(admin_id);
@@ -90,51 +113,76 @@ CREATE TABLE IF NOT EXISTS reviews (
 
 -- CHANNEL POSTS
 CREATE TABLE IF NOT EXISTS channel_posts (
-    id          SERIAL PRIMARY KEY,
-    admin_id    INT NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
-    content     TEXT,
-    media_urls  JSONB NOT NULL DEFAULT '[]',
-    views       INT NOT NULL DEFAULT 0,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id         SERIAL PRIMARY KEY,
+    admin_id   INT NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
+    content    TEXT,
+    media_urls JSONB NOT NULL DEFAULT '[]',
+    views      INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_channel_posts_admin ON channel_posts(admin_id);
 
 -- CHANNEL SUBSCRIPTIONS
 CREATE TABLE IF NOT EXISTS channel_subscriptions (
-    user_id     BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE,
-    admin_id    INT NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    user_id    BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE,
+    admin_id   INT NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (user_id, admin_id)
 );
 
 -- AI RECOMMENDATIONS
 CREATE TABLE IF NOT EXISTS ai_recommendations (
-    id              SERIAL PRIMARY KEY,
-    user_id         BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE,
-    dialog_id       INT REFERENCES dialogs(id) ON DELETE SET NULL,
-    recommendation  TEXT NOT NULL,
-    keywords        JSONB NOT NULL DEFAULT '[]',
-    emotional_tone  VARCHAR(50),
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id             SERIAL PRIMARY KEY,
+    user_id        BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE,
+    dialog_id      INT REFERENCES dialogs(id) ON DELETE SET NULL,
+    recommendation TEXT NOT NULL,
+    keywords       JSONB NOT NULL DEFAULT '[]',
+    emotional_tone VARCHAR(50),
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_ai_recs_user ON ai_recommendations(user_id);
 
 -- BROADCASTS
 CREATE TABLE IF NOT EXISTS broadcasts (
-    id              SERIAL PRIMARY KEY,
-    content         TEXT NOT NULL,
-    media_url       TEXT,
-    sent_by         BIGINT NOT NULL,
+    id               SERIAL PRIMARY KEY,
+    content          TEXT NOT NULL,
+    media_url        TEXT,
+    sent_by          BIGINT NOT NULL,
     recipients_count INT NOT NULL DEFAULT 0,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- BANS LOG
 CREATE TABLE IF NOT EXISTS bans_log (
+    id         SERIAL PRIMARY KEY,
+    user_id    BIGINT NOT NULL,
+    action     VARCHAR(20) NOT NULL,
+    reason     TEXT,
+    issued_by  BIGINT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ADMIN APPLICATIONS
+CREATE TABLE IF NOT EXISTS admin_applications (
+    id               SERIAL PRIMARY KEY,
+    telegram_id      BIGINT NOT NULL,
+    username         VARCHAR(100),
+    age              VARCHAR(30),
+    characteristics  TEXT,
+    hobbies          TEXT,
+    test_answers     JSONB NOT NULL DEFAULT '[]',
+    detailed_answers JSONB NOT NULL DEFAULT '[]',
+    status           VARCHAR(20) NOT NULL DEFAULT 'pending'
+                         CHECK (status IN ('pending','approved','rejected')),
+    group_message_id BIGINT,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- NORM CHECK LOG
+CREATE TABLE IF NOT EXISTS norm_check_log (
     id          SERIAL PRIMARY KEY,
-    user_id     BIGINT NOT NULL,
-    action      VARCHAR(20) NOT NULL,  -- ban / unban / warn / unwarn
-    reason      TEXT,
-    issued_by   BIGINT NOT NULL,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    checked_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    norm_value  INT NOT NULL,
+    fired_count INT NOT NULL DEFAULT 0,
+    details     JSONB NOT NULL DEFAULT '[]'
 );
