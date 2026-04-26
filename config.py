@@ -19,14 +19,15 @@ class Settings(BaseSettings):
     QWEN_MODEL: str = "qwen-plus"
 
     ADMIN_GROUP_ID: int = 0
+    # ID топика (thread) в ADMIN_GROUP куда приходят заявки на администратора
+    ADMIN_APPLY_TOPIC_ID: int = 0
     SUPERADMIN_IDS: List[int] = []
 
     JWT_SECRET: str = "change-me"
     JWT_ALGORITHM: str = "HS256"
 
-    REDIS_URL: str = "redis://localhost:6379"
-
-    WEBAPP_URL: str = "https://yourdomain.com/webapp"
+    # Базовый URL сайта (без /webapp), напр. https://yourdomain.com
+    WEBAPP_URL: str = "https://sadfsvdb.webtm.ru"
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
 
